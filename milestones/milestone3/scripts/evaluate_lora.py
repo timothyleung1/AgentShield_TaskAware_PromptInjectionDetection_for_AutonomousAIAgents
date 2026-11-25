@@ -127,6 +127,11 @@ def main():
         default="auto",
     )
     parser.add_argument("--max-new-tokens", type=int, default=24)
+    parser.add_argument(
+        "--merge-adapter",
+        action="store_true",
+        help="Fold LoRA weights into the base model via merge_and_unload() for faster inference.",
+    )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument(
         "--split",
@@ -168,6 +173,7 @@ def main():
         "base_model": BASE_MODEL,
         "base_model_revision": BASE_MODEL_REVISION,
         "adapter": str(args.adapter.resolve()),
+        "merge_adapter": args.merge_adapter,
         "max_new_tokens": args.max_new_tokens,
         "requested_device": args.device,
         "requested_dtype": args.dtype,
@@ -213,6 +219,7 @@ def main():
         device=args.device,
         dtype=args.dtype,
         max_new_tokens=args.max_new_tokens,
+        merge_adapter=args.merge_adapter,
     )
 
     for index, example in enumerate(validation):
@@ -291,6 +298,7 @@ def main():
             "dtype": detector.dtype,
             "python_version": sys.version,
             "transformers_version": detector.transformers_version,
+            "peft_version": importlib.metadata.version("peft"),
         },
         "started_at": started_at,
         "updated_at": datetime.now(timezone.utc).isoformat(),

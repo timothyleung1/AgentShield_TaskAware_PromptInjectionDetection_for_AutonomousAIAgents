@@ -26,6 +26,13 @@ from milestones.milestone3.scripts.evaluate_lora import (
     build_summary,
     calculate_metrics,
 )
+from milestones.milestone3.scripts.eval_ood_benchmark import (
+    DEFAULT_MANIFEST,
+    OOD_STRESS_PROBES,
+    build_few_shot_messages,
+    compute_metrics as compute_ood_metrics,
+)
+from milestones.milestone3.src.detectors.lora import LoRADetector, parse_label
 
 
 class CharacterTokenizer:
@@ -307,6 +314,85 @@ class TrainingDataTests(unittest.TestCase):
         )
         self.assertEqual(summary["attack_family_metrics"]["benign"]["samples"], 2)
         self.assertAlmostEqual(summary["operational"]["latency_seconds"]["mean"], 2)
+
+    def test_parse_label_validates_strict_json_contract(self):
+        self.assertEqual(parse_label('{"label": 0}'), 0)
+        self.assertEqual(parse_label(' {"label": 1}\n'), 1)
+        for bad in (
+            "not json",
+            '{"label": true}',
+            '{"label": 2}',
+            '{"label": 0, "extra": 1}',
+        ):
+            with self.assertRaises(ValueError):
+                parse_label(bad)
+
+    def test_lora_detector_merge_adapter_flag(self):
+        from pathlib import Path
+        from unittest.mock import MagicMock
+
+        mock_tokenizer = MagicMock(pad_token_id=0, eos_token="<eos>")
+        mock_base = MagicMock()
+        mock_peft = MagicMock()
+        mock_merged = MagicMock()
+        mock_peft.merge_and_unload.return_value = mock_merged
+
+        with (
+            patch(
+                "transformers.AutoTokenizer.from_pretrained",
+                return_value=mock_tokenizer,
+            ),
+            patch(
+                "transformers.AutoModelForCausalLM.from_pretrained",
+                return_value=mock_base,
+            ),
+            patch(
+                "peft.PeftModel.from_pretrained",
+                return_value=mock_peft,
+            ),
+        ):
+            det_unmerged = LoRADetector(
+                Path("/tmp/fake_adapter"), device="cpu", dtype="float32", merge_adapter=False
+            )
+            self.assertIs(det_unmerged.model, mock_peft)
+            mock_peft.merge_and_unload.assert_not_called()
+
+            det_merged = LoRADetector(
+                Path("/tmp/fake_adapter"), device="cpu", dtype="float32", merge_adapter=True
+            )
+            self.assertIs(det_merged.model, mock_merged)
+            mock_peft.merge_and_unload.assert_called_once()
+
+    def test_ood_stress_probes_balanced_and_metrics_exact(self):
+        self.assertEqual(len(OOD_STRESS_PROBES), 24)
+        ids = [p["id"] for p in OOD_STRESS_PROBES]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertEqual(sum(1 for p in OOD_STRESS_PROBES if p["label"] == 0), 12)
+        self.assertEqual(sum(1 for p in OOD_STRESS_PROBES if p["label"] == 1), 12)
+
+        metrics = compute_ood_metrics(
+            [
+                {"actual": 1, "pred": 1, "latency": 0.4},
+                {"actual": 1, "pred": 0, "latency": 0.5},
+                {"actual": 0, "pred": 1, "latency": 0.3},
+                {"actual": 0, "pred": 0, "latency": 0.2},
+            ]
+        )
+        self.assertEqual((metrics["tp"], metrics["fp"], metrics["tn"], metrics["fn"]), (1, 1, 1, 1))
+        self.assertEqual(metrics["f1"], 0.5)
+        self.assertEqual(metrics["fpr"], 0.5)
+
+    def test_default_few_shot_manifest_builds_8shot_messages(self):
+        import json
+
+        manifest = json.loads(DEFAULT_MANIFEST.read_text(encoding="utf-8"))
+        demos = manifest["examples"]
+        self.assertEqual(len(demos), 8)
+        messages = build_few_shot_messages("Hello world", demos)
+        # 1 system + 8*(user+assistant) + 1 target user = 18 messages
+        self.assertEqual(len(messages), 18)
+        self.assertEqual(messages[0]["role"], "system")
+        self.assertEqual(messages[-1]["role"], "user")
 
 
 if __name__ == "__main__":

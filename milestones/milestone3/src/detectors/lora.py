@@ -40,6 +40,7 @@ class LoRADetector:
         device: str = "auto",
         dtype: str = "auto",
         max_new_tokens: int = 24,
+        merge_adapter: bool = False,
     ):
         import torch
         import transformers
@@ -51,6 +52,7 @@ class LoRADetector:
         self.transformers_version = transformers.__version__
         self.adapter_path = Path(adapter_path)
         self.max_new_tokens = max_new_tokens
+        self.merge_adapter = merge_adapter
 
         if device == "auto":
             if torch.cuda.is_available():
@@ -96,7 +98,10 @@ class LoRADetector:
             revision=BASE_MODEL_REVISION,
             torch_dtype=selected_dtype,
         )
-        self.model = PeftModel.from_pretrained(base_model, self.adapter_path)
+        peft_model = PeftModel.from_pretrained(base_model, self.adapter_path)
+        self.model = (
+            peft_model.merge_and_unload() if self.merge_adapter else peft_model
+        )
         self.model.to(device)
         self.model.eval()
         self.dtype = str(selected_dtype)
