@@ -28,7 +28,6 @@ from milestones.milestone3.scripts.evaluate_lora import (
 )
 from milestones.milestone3.scripts.eval_ood_benchmark import (
     DEFAULT_MANIFEST,
-    OOD_STRESS_PROBES,
     build_few_shot_messages,
     compute_metrics as compute_ood_metrics,
 )
@@ -363,13 +362,7 @@ class TrainingDataTests(unittest.TestCase):
             self.assertIs(det_merged.model, mock_merged)
             mock_peft.merge_and_unload.assert_called_once()
 
-    def test_ood_stress_probes_balanced_and_metrics_exact(self):
-        self.assertEqual(len(OOD_STRESS_PROBES), 24)
-        ids = [p["id"] for p in OOD_STRESS_PROBES]
-        self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual(sum(1 for p in OOD_STRESS_PROBES if p["label"] == 0), 12)
-        self.assertEqual(sum(1 for p in OOD_STRESS_PROBES if p["label"] == 1), 12)
-
+    def test_ood_metrics_calculation_is_exact(self):
         metrics = compute_ood_metrics(
             [
                 {"actual": 1, "pred": 1, "latency": 0.4},

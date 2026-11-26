@@ -1,64 +1,58 @@
 # AgentShield — Presentation Slides & Speaker Notes (CMU 11-967 HW12)
 
-- **Google Slides Deck:** https://docs.google.com/presentation/d/1bJqjEwW5HzluILUPbl5a4iE3-9sSiQyaApkkNDlxnsg/edit
+- **Google Slides Deck:** https://docs.google.com/presentation/d/1tI4yEuXuEQpULPIdgxdZRGQ5c4g2fO-GEtX4uuaRPas/edit
 - **Exported Slide Copies:** [`AgentShield_Presentation.pdf`](AgentShield_Presentation.pdf) | [`AgentShield_Presentation.pptx`](AgentShield_Presentation.pptx)
 - **Authors:** Eva Liu & Timothy Leung
 - **Rubric Coverage:**
-  - **(a) The Task:** Slide 2 (`Prompt-Injection Classifier Goal`)
-  - **(b) Data:** Slide 3 (`Dataset Details & Splits`)
-  - **(c) Experimental Design:** Slide 4 (`Experimental Design & Methods`)
-  - **(d) Preliminary Insights:** Slides 5–10 (Dev ICL scaling, Locked Test headline & family breakdown, LoRA weight-merging latency speedup, 3-benchmark OOD reality check, Consolidated insights) + Slide 11 (`Conclusions & Next Steps`)
+  - **(a) The Task:** Slide 1 (`AgentShield` cover + pipeline + scope)
+  - **(b) Data:** Slide 2 (`Our Dataset: agentic-5k`) & Slide 3 (`Other PI Datasets & Differences — Eval Only`)
+  - **(c) Experimental Design:** Slide 4 (`Baseline & In-Context Learning`) & Slide 5 (`LoRA: How It Works & Setup`)
+  - **(d) Preliminary Insights:** Slides 6–8 (`LoRA Results: Quality & Speed`, `Trained LoRA on Unseen Datasets`, `Key Insights & Takeaways`) + Slide 9 (`Summary & Questions`)
 
 ---
 
 ## Slide-by-Slide Outline & Speaker Notes
 
-### Slide 1 — AgentShield (Cover)
-- **Headline:** In-Context Learning vs. LoRA Fine-Tuning for Prompt-Injection Detection in Autonomous AI Agents (`Qwen/Qwen2.5-3B-Instruct` · `agentic-prompt-injection-5k`).
-- **Speaker Notes:** Welcome! Today we present AgentShield: a controlled empirical comparison between in-context learning (ICL) and LoRA fine-tuning on the same 3B open-weight model (`Qwen2.5-3B-Instruct`) for detecting prompt injections in untrusted agent-visible text. We cover the task, dataset, experimental design, sealed test results, a latency engineering discovery on LoRA weight merging, and an out-of-distribution generalization check across three external benchmarks.
+### Slide 1 — AgentShield `(a) THE TASK`
+- **Visual:** 4-stage pipeline (`Untrusted Text → AgentShield (Qwen2.5-3B) → Binary Verdict {"label": 0|1} → Policy Gate`) with explicit scope note (text-only binary classification, not live tool authorization).
+- **Speaker Notes:** Welcome! Today we present AgentShield. Autonomous AI agents read untrusted text from documents, emails, and tool outputs. Our goal is a text-only binary classifier on `Qwen2.5-3B-Instruct` that flags prompt-injection attempts (`1`) while allowing benign text (`0`). We keep scope honest: this classifier feeds into an independent policy gate and is not end-to-end tool authorization by itself. Let's start with the dataset we chose.
 
-### Slide 2 — `(a) THE TASK`: Prompt-Injection Classifier Goal
-- **Visual:** 4-stage pipeline (`Untrusted Text → AgentShield → Binary Verdict {"label": 0|1} → Policy Gate (M4)`).
-- **Key Points:** Binary verdict (`0 = benign`, `1 = injection`); catches overrides, authority spoofing, and memory poisoning while allowing benign security quotes; strictly text-only classification (not live tool execution or end-to-end authorization).
-- **Speaker Notes:** Autonomous agents ingest untrusted text from documents, emails, and tool outputs. Our core task is text-only binary classification: does untrusted text attempt to hijack instructions or spoof authority? We keep the scope honest — the benchmark provides only text and a binary label, not a separate user goal or tool runtime, and in production a classifier must feed into an independent deterministic policy gate.
+### Slide 2 — Our Dataset: `agentic-5k` `(b) DATA`
+- **Splits:** `3,923` Train (`55%` attack) · `467` Validation (`66%` attack) · `545` Sealed Test (`51%` attack) from `3nesdeniz/agentic-prompt-injection-5k`.
+- **What's Inside:** 4 agentic attack families (*Approval/Authority*, *RAG Document*, *Memory Poisoning*, *Tool Abuse*) + hard benign examples (quoted attacks & safe roleplay = `0`); short synthetic enterprise text (~190 chars); 0 duplicates & 0 overlapping attack techniques between train and val.
+- **Speaker Notes:** We chose `3nesdeniz/agentic-prompt-injection-5k` on Hugging Face (`4,935` total examples across official train, validation, and sealed test splits). Unlike simple chatbot jailbreak datasets, it targets four realistic agentic attack families: fake approvals, instructions hidden in RAG documents, memory poisoning, and tool abuse. Its benign class intentionally includes hard negatives like security discussions that quote an attack and safe roleplay requests. Our audit confirmed zero duplicate texts and zero overlapping attack techniques between train and validation.
 
-### Slide 3 — `(b) DATA`: Dataset Details & Splits
-- **Key Metrics:** `3,923` Train (`55.1%` attack) · `467` Validation (`66.0%` attack) · `545` Sealed Test (`51.4%` attack) from `3nesdeniz/agentic-prompt-injection-5k` (pinned rev `37ecd4e7`).
-- **Audit & OOD Data:** 4 attack families (`Approval`, `RAG`, `Memory`, `Tool`), `0` exact duplicates across splits, `0` overlapping techniques between train and val. External OOD stress sets: `safe-guard-prompt-injection` (`n=200`), `jailbreak-classification` (`n=189`), and `agentic-ood-24` (`24` human-written probes).
-- **Speaker Notes:** We retained the provider's official splits (`3,923` train, `467` validation, `545` sealed test). Our leakage audit verified zero exact duplicates and zero overlapping attack techniques between train and validation across all four families. To evaluate generalization beyond a single synthetic corpus, we added three external out-of-distribution test sets.
+### Slide 3 — Other PI Datasets & Differences `(b) DATA`
+- **Training Boundary:** Trained **only** on `agentic-prompt-injection-5k`; `xTRam1/safe-guard-prompt-injection` (`n=200`), `jackhhao/jailbreak-classification` (`n=189`), and `deepset/prompt-injections` (`n=116`) were **never** used for training (evaluation-only).
+- **Key Contrast:** Those external benchmarks target direct chatbot overrides/jailbreaks and often label persona or *"Act as..."* prompts as attacks (`1`), whereas `agentic-5k` targets indirect enterprise agent attacks and labels roleplay/quoted attacks as benign (`0`).
+- **Speaker Notes:** Before looking at models, it helps to compare our chosen dataset with other popular public prompt-injection benchmarks on Hugging Face: `safe-guard-prompt-injection`, `jailbreak-classification`, and `deepset/prompt-injections`. Those focus on direct chatbot jailbreaks and often label persona or *"act as"* prompts as attacks, whereas `agentic-5k` focuses on indirect enterprise agent attacks and treats roleplay and quoted attacks as benign. Crucially, we did NOT train on any of those other datasets — we used them strictly at the end to test out-of-distribution generalization.
 
-### Slide 4 — `(c) EXPERIMENTAL DESIGN`: Experimental Design & Methods
-- **Controlled Base:** `Qwen/Qwen2.5-3B-Instruct` (rev `aa8e7253`) · `ZERO_SHOT_V2` prompt · Greedy JSON `{"label": 0|1}` (`max_new_tokens=24`).
-- **3 Adaptation Arms:**
-  1. **Zero-Shot v2:** Frozen base weights, prompt rules only (`~346` input tokens).
-  2. **Few-Shot ICL:** Frozen base weights + 4/8 train demonstrations (`~829` tokens = `2.4×`; dev winner `random_seed42_8shot`).
-  3. **LoRA Fine-Tuning:** `r=8`, `α=16`, 7 linear layers, masked completion loss (`~346` tokens, merged at load; dev winner Epoch 1).
-- **Evaluation Rigor:** Select on validation (`467`) → evaluate once on sealed test (`545`) with exact two-sided McNemar + 10,000 paired bootstrap CIs, plus T4 latency merging benchmarks and 3 external OOD sets.
+### Slide 4 — Baseline & In-Context Learning `(c) DESIGN · (d) INSIGHTS`
+- **Baseline:** Frozen `Qwen/Qwen2.5-3B-Instruct` + trust-boundary prompt (`v2`) + strict JSON output.
+- **ICL Results (Validation `n=467`):** Demo choice swung F1 from `87% → 96%` (`8-shot balanced` vs. `8-shot random s42`, matching `gpt-4o-mini`), at a cost of `2.4×` prompt tokens and `11/12` quoted-attack false positives.
+- **Speaker Notes:** We used frozen `Qwen/Qwen2.5-3B-Instruct` as our baseline with our trust-boundary v2 prompt and strict JSON output. Without changing any weights, we tested adding 4 or 8 labeled training examples directly into the prompt (in-context learning). The biggest surprise was demonstration sensitivity: two valid 8-shot sets swung validation F1 by nearly 9 points, from `87%` to `96%` — matching `gpt-4o-mini`. However, 8-shot ICL more than doubled prompt length (`2.4×` tokens) and still misclassified `11` of `12` benign security quotes.
 
-### Slide 5 — `(d) INSIGHTS · DEV`: Dev: Prompting & ICL Scaling
-- **Chart:** Validation F1 & Benign FPR across `0-shot (v2)` (`90.6%` F1 / `8.2%` FPR), `4-shot balanced` (`91.1%` / `10.1%`), `8-shot balanced` (`87.0%` / `6.3%`), and `8-shot random s42` (`95.8%` / `7.5%`).
-- **Takeaway:** `v1 → v2` prompt lifted F1 `+7.5 pp` and halved FPR; demonstration choice at `k=8` swung F1 by `8.7 pp`; `8-shot s42` neared `gpt-4o-mini` (`96.3%` F1) but still misclassified `11/12` benign quoted attacks.
+### Slide 5 — LoRA: How It Works & Setup `(c) EXPERIMENTAL DESIGN`
+- **Visual Diagram:** `Frozen Base Model (W)` + `Trainable LoRA (A × B, r=8, <1% params)` → `Merged Weights (W' = W + ΔW)`.
+- **Setup & Training Time:** Same `Qwen2.5-3B` base & `v2` prompt (0 demos), `r=8`, `α=16` on 7 attention & MLP layers, masked loss on assistant JSON label only, trained on `3,923` train rows — **~41 minutes** for 1 full epoch on Tesla T4 (`fp16`, ~8.2 GB peak VRAM, 491 steps; also verified on A10G `bf16`, selecting Epoch 1 by lowest val loss).
+- **Speaker Notes:** Instead of updating all 3.1 billion parameters, LoRA freezes the base Qwen weights and trains tiny rank-8 adapter matrices (<1% of parameters) on the attention and MLP projections. At deployment time, those matrices fold right back into the base weights for zero extra inference cost. We kept the exact same v2 prompt with zero in-context demos and computed loss only on the JSON label. Training 1 full epoch over all `3,923` rows took ~41 minutes on a single NVIDIA Tesla T4 using ~8.2 GB of VRAM, and we selected Epoch 1 by lowest validation loss.
 
-### Slide 6 — `(d) PRELIMINARY INSIGHTS · LOCKED TEST`: LoRA Dominated Locked Test (`n = 545`)
-- **Hero Metrics:** `0.998` LoRA Attack F1 (`+7.96 pp` vs. `0.919` ICL, 95% CI `[+5.8, +10.4]`), `0.38%` Benign FPR (`1/265` vs. `39/265` ICL, `−14.34 pp`), `48 / 1` fixed vs. regressed (`p = 1.78e-13`).
+### Slide 6 — LoRA Results: Quality & Speed `(d) PRELIMINARY INSIGHTS`
+- **Sealed Test (`n=545`, evaluated once):** `99.8%` Attack F1 (vs. `91.9%` ICL), `0.4%` Benign False Alarms (`1` FP vs. `39` FPs), `0` Missed Attacks (vs. `9` missed; `p = 1.78e-13`).
+- **Speed Finding:** Merging LoRA weights (`.merge_and_unload()`) cut Tesla T4 latency `1.92×` (`0.78s → 0.40s`) — ~30% faster than 8-shot ICL (`0.55s`) with 58% fewer prompt tokens and `30/30` identical outputs.
+- **Speaker Notes:** On the 545-row held-out test set — evaluated once after both models were frozen — LoRA decisively beat 8-shot ICL: `99.8%` F1 versus `91.9%`, cutting false alarms from `39` down to `1` and catching all `280` attacks (`48` ICL errors fixed, `1` regression, McNemar `p = 1.78e-13`). We also found a practical engineering win: leaving PEFT adapters unmerged made LoRA slower than ICL, whereas calling `merge_and_unload()` cut T4 latency `1.92×` (`0.78s` down to `0.40s`) with identical predictions — ~30% faster than 8-shot ICL using 58% fewer prompt tokens.
 
-### Slide 7 — `(d) INSIGHTS · TEST`: Locked Test: Metrics & Families
-- **Chart:** All 5 locked-test metrics with 95% paired bootstrap CIs + 4 subgroup summary cards (`Approval`: `90.5% → 100%`, `RAG`: `98.8% → 100%`, `Memory & Tool`: both `100%`, `Benign`: `39 FP → 1 FP`).
-
-### Slide 8 — `(d) INSIGHTS · SPEED`: Merging LoRA Cuts Latency 1.92×
-- **Chart:** [`../milestones/milestone3/assets/04_t4_latency_merging.png`](../milestones/milestone3/assets/04_t4_latency_merging.png)
-- **Key Finding:** Independent GCP Tesla T4 reproduction (`fp16`, 1 epoch, 41 min, val F1 `0.995`, 100% recall). Unmerged `PeftModel` wrapped 252 linear layers (`0.78s` p50); `.merge_and_unload()` cut latency `1.92×` to `0.40s` p50 with `30/30` exact agreement — ~30% faster than 8-shot ICL (`0.55s`) with 58% fewer prompt tokens.
-
-### Slide 9 — `(d) INSIGHTS · OOD`: OOD Check: 3 External Benchmarks
+### Slide 7 — Trained LoRA on Unseen Datasets `(d) INSIGHTS · OOD`
 - **Chart:** [`../milestones/milestone3/assets/05_ood_generalization.png`](../milestones/milestone3/assets/05_ood_generalization.png)
-- **Key Metrics:**
-  - `safe-guard` (`n=200`): 8-shot ICL won (`93.6%` F1, `1.0%` FPR); LoRA dropped to `84.7%` F1.
-  - `jailbreak` (`n=189`): Merged LoRA won F1 (`93.1%`) & Recall (`97.8%`); ICL kept half the FPR (`5.1%`).
-  - `agentic-24` (`n=24`): LoRA hit `100%` Recall (haystacks & memory poisoning); ICL won F1 (`91.7%`, `8.3%` FPR).
+- **Public External Results:**
+  - `safe-guard` (`n=200`): 8-shot ICL won (`94%` F1, `1%` FPR); LoRA dropped to `85%` F1.
+  - `jailbreak` (`n=189`): LoRA led F1 (`93%`) & Recall (`98%`); ICL kept half the FPR (`5%`).
+  - `deepset` (`n=116`): LoRA flat vs. 0-shot (`58%` vs. `60%` F1) due to roleplay label definition clash.
+- **Speaker Notes:** Next, we tested our exact same trained LoRA model on the external Hugging Face datasets we never trained on. The contrast is eye-opening: on `jailbreak-classification`, LoRA still achieved the highest F1 (`93%`) and recall (`98%`), though 8-shot ICL had half the false alarms (`5%` vs `11%`). On `safe-guard`, frozen 8-shot ICL beat LoRA by 9 F1 points (`94%` vs `85%`) with only `1%` false positives. And on `deepset`, both 0-shot and LoRA stayed around `58–60%` F1 because `deepset` labels *"act as an interviewer"* prompts as attacks.
 
-### Slide 10 — `(d) INSIGHTS`: Key Insights: ICL vs. LoRA
-- **What the Results Show:** In-domain LoRA wins quality (`+8 pp` F1) and speed (~30% merged); single-dataset LoRA overfits synthetic cues OOD; frozen ICL preserves `1–8%` FPR across all new domains; label taxonomies differ across public benchmarks.
-- **How to Improve Next:** Train LoRA on a multi-source mix + real benign replay, regularize to prevent shortcuts, always merge adapter weights for serving, and pair the detector with task context & deterministic policy gates.
+### Slide 8 — Key Insights & Takeaways `(d) INSIGHTS`
+- **What We Learned:** In-domain LoRA dominates quality & speed; out-of-domain frozen ICL keeps lower FPR (`1–5%`); OOD shift came from single-corpus shortcuts & differing roleplay/quote label rules; always merge LoRA weights for serving.
+- **What We Would Do Next:** Train LoRA on a multi-source mix + real benign text, regularize (lower rank / replay), add task context (user goal + provenance), and pair any detector with deterministic policy gates.
 
-### Slide 11 — Conclusions & Next Steps
-- **Summary:** (1) In-domain winner (`0.998` F1, `0.4%` FPR, ~30% faster merged), (2) OOD reality (frozen ICL kept `1–8%` OOD FPR), (3) M4–M5 roadmap (multi-source LoRA + task context + deterministic policy gates).
+### Slide 9 — Summary & Questions
+- **Wrap-Up:** (1) Dataset & Design (`agentic-5k` only, `Qwen2.5-3B`), (2) LoRA vs. ICL (`99.8%` F1 & ~30% faster merged after ~41 min training), (3) Big Takeaway (frozen ICL kept `1–5%` OOD FPR → multi-source LoRA + policy gates next).
